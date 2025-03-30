@@ -8,27 +8,59 @@ const win32 = struct {
     usingnamespace @import("win32").globalization;
     usingnamespace @import("win32").system.diagnostics.tool_help;
     usingnamespace @import("win32").system.library_loader;
+    usingnamespace @import("win32").system.process_status;
     usingnamespace @import("win32").system.threading;
     usingnamespace @import("win32").system.windows_programming;
     usingnamespace @import("win32").ui.shell;
     usingnamespace @import("win32").ui.windows_and_messaging;
 };
 
-const target_process = "vrcompositer.exe";
+const target_process = "vrcompositor.exe";
 
 pub fn main() !void {
     while (true) {
         const name = std.unicode.utf8ToUtf16LeStringLiteral(target_process);
-        const process = openProcessByName(name) catch |err| switch (err) {
-            error.ProcessNotFound => {
-                std.debug.print("Process {s} not found\n", .{target_process});
-                std.time.sleep(std.time.ns_per_s * 1);
-                continue;
-            },
-            else => return err,
+        const process = openProcessByName(name) catch {
+            std.time.sleep(std.time.ns_per_s * 1);
+            continue;
         };
 
+        var path: [win32.MAX_PATH:0]u16 = undefined;
+        if (win32.K32GetModuleFileNameExW(process, null, &path, path.len) == 0) continue;
+
+        var path_utf8: [win32.MAX_PATH:0]u8 = undefined;
+        if (win32.WideCharToMultiByte(win32.CP_UTF8, 0, &path, -1, &path_utf8, path_utf8.len, null, null) != 0) {
+            std.debug.print("Process {s} found at {s}, waiting for termination...\n", .{ target_process, @as([*:0]const u8, &path_utf8) });
+        } else {
+            std.debug.print("Process {s} found, waiting for termination...\n", .{target_process});
+        }
+
         _ = win32.WaitForSingleObject(process, win32.INFINITE);
+
+        var exitCode: u32 = 0;
+        if (win32.GetExitCodeProcess(process, &exitCode) == win.FALSE) {
+            const err = win32.GetLastError();
+            std.debug.print("Failed to get exit code: 0x{x}\n", .{@intFromEnum(err)});
+        } else {
+            std.debug.print("Process exited with code 0x{x}\n", .{exitCode});
+        }
+
+        _ = win32.CloseHandle(process);
+
+        if (exitCode != 0) {
+            std.debug.print("Recovering from error...\n", .{});
+            var startupInfo: win32.STARTUPINFOW = std.mem.zeroes(win32.STARTUPINFOW);
+            var processInfo: win32.PROCESS_INFORMATION = undefined;
+            startupInfo.cb = @sizeOf(win32.STARTUPINFOW);
+            if (win32.CreateProcessW(&path, null, null, null, win.FALSE, win32.CREATE_UNICODE_ENVIRONMENT, null, null, &startupInfo, &processInfo) == win.TRUE) {
+                _ = win32.WaitForSingleObject(processInfo.hProcess, win32.INFINITE);
+                _ = win32.CloseHandle(processInfo.hProcess);
+                _ = win32.CloseHandle(processInfo.hThread);
+            } else {
+                const err = win32.GetLastError();
+                std.debug.print("Failed to create process: 0x{x}\n", .{@intFromEnum(err)});
+            }
+        }
     }
 }
 
