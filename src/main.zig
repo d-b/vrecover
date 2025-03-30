@@ -53,7 +53,8 @@ pub fn main() !void {
             var processInfo: win32.PROCESS_INFORMATION = undefined;
             startupInfo.cb = @sizeOf(win32.STARTUPINFOW);
             if (win32.CreateProcessW(&path, null, null, null, win.FALSE, win32.CREATE_UNICODE_ENVIRONMENT, null, null, &startupInfo, &processInfo) == win.TRUE) {
-                _ = win32.WaitForSingleObject(processInfo.hProcess, win32.INFINITE);
+                std.debug.print("Process created with PID {d}\n", .{processInfo.dwProcessId});
+                _ = win32.WaitForSingleObject(processInfo.hProcess, 0);
                 _ = win32.CloseHandle(processInfo.hProcess);
                 _ = win32.CloseHandle(processInfo.hThread);
             } else {
